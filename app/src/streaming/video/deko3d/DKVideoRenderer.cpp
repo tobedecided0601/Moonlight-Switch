@@ -979,6 +979,19 @@ void DKVideoRenderer::updateRenderState(int width, int height, AVFrame* frame) {
     recordStaticCommands(frame);
 }
 
+void DKVideoRenderer::invalidateHardwareResources() {
+    if (!m_is_initialized)
+        return;
+
+    // frameMappings wrap buffers owned by the NVTEGRA decoder pool, matched by
+    // nvmap handle and CPU address. After the decoder is recreated a handle
+    // can be reused while describing different memory, so drop everything
+    // and let updateFrameMapping() rebuild what the next frame needs.
+    queue.waitIdle();
+    frameMappings.clear();
+    currentMappingIndex = -1;
+}
+
 void DKVideoRenderer::updateFrameMapping(AVFrame* frame) {
     AVNVTegraMap* map = av_nvtegra_frame_get_fbuf_map(frame);
     if (!map || lumaTextureId < 0 || chromaTextureId < 0)

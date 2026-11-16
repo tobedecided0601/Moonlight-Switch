@@ -89,7 +89,7 @@ void MoonlightSession::connection_started() {
         return;
 
     m_active_session->m_stop_requested = false;
-    m_active_session->m_is_active = true;
+    m_active_session->m_status = Status::Active;
 }
 
 void MoonlightSession::connection_terminated(int error_code) {
@@ -100,33 +100,22 @@ void MoonlightSession::connection_terminated(int error_code) {
 
     if (m_active_session->m_stop_requested) {
         brls::Logger::info("MoonlightSession: Termination acknowledged after stop request");
-        m_active_session->m_is_active = false;
-        m_active_session->m_is_terminated = true;
+        m_active_session->m_status = Status::Terminate;
         return;
     }
 
-    if (error_code != 0) {
-        brls::Logger::info("MoonlightSession: Reconnection attempt");
-
-        // Connection is already terminated here; avoid toggling the user stop flag.
-        LiStopConnection();
-
-        m_active_session->start([](const GSResult<bool>& result) {
-            if (result.isSuccess()) {
-                brls::Logger::info("MoonlightSession: Reconnected");
-            } else {
-                brls::Logger::info("MoonlightSession: Reconnection failed");
-                if (m_active_session) {
-                    m_active_session->m_is_active = false;
-                    m_active_session->m_is_terminated = true;
-                }
-            }
-        }, m_active_session->m_is_sunshine);
+    // This callback runs on a moonlight-common-c thread. Calling
+    // LiStopConnection()/start() from here joins and recreates the very
+    // threads we are running on, which can leak threads or crash. Only record
+    // the request; StreamingView::draw() performs it on the main thread.
+    const Status status = m_active_session->m_status;
+    if (error_code != 0 &&
+        (status == Status::Active || status == Status::RestartPending)) {
+        m_active_session->scheduleRestart();
         return;
     }
 
-    m_active_session->m_is_active = false;
-    m_active_session->m_is_terminated = true;
+    m_active_session->m_status = Status::Terminate;
 }
 
 void MoonlightSession::connection_log_message(const char* format, ...) {
@@ -251,7 +240,8 @@ void MoonlightSession::audio_renderer_decode_and_play_sample(
 void MoonlightSession::start(ServerCallback<bool> callback, bool is_sunshine) {
     m_is_sunshine = is_sunshine;
     m_stop_requested = false;
-    m_is_terminated = false;
+    // m_status is left as is: None for the first connection, Restarting for a
+    // reconnect. connection_started() moves it to Active.
 
     LiInitializeStreamConfiguration(&m_config);
 
@@ -395,8 +385,23 @@ void MoonlightSession::stop(int terminate_app) {
     LiStopConnection();
 }
 
-void MoonlightSession::restart() {
+void MoonlightSession::scheduleRestart() {
+    Status expected = Status::Active;
+    if (m_status.compare_exchange_strong(expected, Status::RestartPending)) {
+        brls::Logger::info("MoonlightSession: Scheduling reconnection attempt");
+    }
+}
+
+void MoonlightSession::performRestart() {
+    Status expected = Status::RestartPending;
+    if (!m_status.compare_exchange_strong(expected, Status::Restarting))
+        return;
+
+    brls::Logger::info("MoonlightSession: Reconnection attempt");
     LiStopConnection();
+
+    if (m_video_renderer)
+        m_video_renderer->invalidateHardwareResources();
 
     start([](const GSResult<bool>& result) {
         if (result.isSuccess()) {
@@ -404,11 +409,10 @@ void MoonlightSession::restart() {
         } else {
             brls::Logger::info("MoonlightSession: Reconnection failed");
             if (m_active_session) {
-                m_active_session->m_is_active = false;
-                m_active_session->m_is_terminated = true;
+                m_active_session->m_status = Status::Terminate;
             }
         }
-    }, m_active_session->m_is_sunshine);
+    }, m_is_sunshine);
 }
 
 void MoonlightSession::draw(NVGcontext* vg, int width, int height) {
