@@ -68,6 +68,14 @@ class ReleaseTests(unittest.TestCase):
         with ZipFile(self.output / "Moonlight-Switch2-v1.6.0-Debug.zip") as archive:
             self.assertIn("Moonlight.elf", archive.namelist())
 
+    def test_switch2_is_optional(self):
+        import shutil
+        for name in ("Moonlight-Switch2", "Moonlight-Switch2-debug"):
+            shutil.rmtree(self.artifacts / name)
+        assets = collect("v1.6.0", self.artifacts, self.output)
+        self.assertEqual(len(assets), 18)
+        self.assertFalse((self.output / "Moonlight-Switch2-v1.6.0.zip").exists())
+
     def test_signed_android(self):
         unsigned = self.artifacts / "Moonlight-android-release-unsigned-apk"
         (unsigned / "Moonlight-unsigned.apk").unlink()
