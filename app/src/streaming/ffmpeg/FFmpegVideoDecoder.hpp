@@ -55,6 +55,9 @@ class FFmpegVideoDecoder : public IFFmpegVideoDecoder {
     int m_frames_out = 0;
     int m_current_frame = 0, m_next_frame = 0;
     uint32_t m_last_frame = 0;
+    // Decode failures since the last successful decode. A few are recovered
+    // with a keyframe request; only a persistent run triggers a reconnect.
+    int m_consecutive_decode_errors = 0;
     AVCodecID m_codec_id = AV_CODEC_ID_NONE;
 
     bool m_hw_decode_active = false;

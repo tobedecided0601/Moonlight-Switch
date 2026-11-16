@@ -397,7 +397,28 @@ void MoonlightSession::performRestart() {
     if (!m_status.compare_exchange_strong(expected, Status::Restarting))
         return;
 
-    brls::Logger::info("MoonlightSession: Reconnection attempt");
+    // Give up if the connection keeps dropping: a host that accepts and then
+    // loses the stream over and over would otherwise loop forever.
+    constexpr uint64_t kRestartWindowMs = 60 * 1000;
+    constexpr size_t kMaxRestartsPerWindow = 3;
+    const uint64_t now = LiGetMillis();
+    while (!m_recent_restarts.empty() &&
+           now - m_recent_restarts.front() > kRestartWindowMs) {
+        m_recent_restarts.pop_front();
+    }
+    if (m_recent_restarts.size() >= kMaxRestartsPerWindow) {
+        brls::Logger::error(
+            "MoonlightSession: {} reconnects within a minute, giving up",
+            m_recent_restarts.size());
+        m_stop_requested = true;
+        LiStopConnection();
+        m_status = Status::Terminate;
+        return;
+    }
+    m_recent_restarts.push_back(now);
+
+    brls::Logger::info("MoonlightSession: Reconnection attempt {}",
+                       m_recent_restarts.size());
     LiStopConnection();
 
     if (m_video_renderer)

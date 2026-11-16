@@ -262,11 +262,11 @@ void AVFrameQueue::configure(
     limit = capacityFor(configuredDepth);
     if (capacityLimit)
         limit = std::min(limit, capacityLimit);
-    // Keep at most one frame of jitter reserve. Two frames added a constant
-    // ~33 ms at 60 FPS, which makes cursor and menu navigation feel sluggish;
-    // one frame still absorbs ordinary Wi-Fi arrival jitter.
+    // Jitter reserve follows the frames_queue_size setting: 1 -> none,
+    // 2 -> one frame (default), 3+ -> two frames. Each frame of reserve adds
+    // ~16 ms of latency at 60 FPS.
     targetBufferedFrames =
-        configuredDepth > 1 ? std::min<size_t>(configuredDepth - 1, 1) : 0;
+        configuredDepth > 1 ? std::min<size_t>(configuredDepth - 1, 2) : 0;
     targetBufferedFrames  = std::min(targetBufferedFrames, limit - 1);
     transferOwnership = transferOwnershipEnabled;
     streamFps = configuredStreamFps;

@@ -347,6 +347,25 @@ void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
 
     session->draw(vg, (int) width, (int) height);
 
+    // Spinner + label while a reconnect is pending or in progress, so a
+    // frozen last frame does not look like a hang.
+    const bool reconnecting = session->is_reconnecting();
+    if (reconnecting != reconnectOverlayShown) {
+        reconnectOverlayShown = reconnecting;
+        loader->setHidden(!reconnecting);
+    }
+    if (reconnecting) {
+        nvgFontSize(vg, 24);
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        nvgFontFaceId(vg, Application::getFont(FONT_REGULAR));
+        nvgFontBlur(vg, 3);
+        nvgFillColor(vg, nvgRGBA(0, 0, 0, 255));
+        nvgText(vg, x + width / 2, y + height / 2 + 80, "Reconnecting...", nullptr);
+        nvgFontBlur(vg, 0);
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
+        nvgText(vg, x + width / 2, y + height / 2 + 80, "Reconnecting...", nullptr);
+    }
+
     if (!tempInputLock && session->is_active())
         handleInput();
     handleOverlayCombo();
