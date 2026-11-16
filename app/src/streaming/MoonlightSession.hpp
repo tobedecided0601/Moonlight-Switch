@@ -2,6 +2,8 @@
 
 #include "GameStreamClient.hpp"
 #include "MoonlightSessionDecoderAndRenderProvider.hpp"
+#include <atomic>
+#include <deque>
 #include <nanovg.h>
 
 struct SessionStats {
@@ -23,12 +25,32 @@ class MoonlightSession {
     void stop(int terminate_app);
     void set_address(const std::string& address) { m_address = address; }
 
-    void restart();
+    enum class Status : unsigned char {
+        // Connecting for the first time.
+        None,
+        Active,
+        // The stream has ended; the view should close.
+        Terminate,
+        // A connection error happened on a worker thread. The main thread
+        // must perform the restart (see performRestart()).
+        RestartPending,
+        Restarting,
+    };
+
+    // Safe to call from any thread: only records that a restart is needed.
+    void scheduleRestart();
+    // Must be called from the main (UI) thread.
+    void performRestart();
 
     void draw(NVGcontext* vg, int width, int height);
 
-    bool is_active() const { return m_is_active; }
-    bool is_terminated() const { return m_is_terminated; }
+    Status status() const { return m_status.load(); }
+    bool is_active() const { return status() == Status::Active; }
+    bool is_terminated() const { return status() == Status::Terminate; }
+    bool is_reconnecting() const {
+        const Status s = status();
+        return s == Status::RestartPending || s == Status::Restarting;
+    }
 
     bool connection_status_is_poor() const {
         return m_connection_status_is_poor;
@@ -81,11 +103,16 @@ class MoonlightSession {
     IVideoRenderer* m_video_renderer = nullptr;
     IAudioRenderer* m_audio_renderer = nullptr;
 
-    bool m_is_active = false;
-    bool m_is_terminated = false;
-    bool m_stop_requested = false;
+    // Written by moonlight-common-c / decoder threads, read by the UI thread.
+    std::atomic<Status> m_status{Status::None};
+    // Set when the user asked to stop (not a network error).
+    std::atomic<bool> m_stop_requested{false};
     bool m_connection_status_is_poor = false;
     bool m_use_hdr = false;
+
+    // Main thread only: start times (LiGetMillis) of recent reconnects, used
+    // to give up when the connection keeps dropping.
+    std::deque<uint64_t> m_recent_restarts;
 
     SessionStats m_session_stats = {};
     uint64_t m_last_stats_update_ms = 0;

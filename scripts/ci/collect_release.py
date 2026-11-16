@@ -39,6 +39,12 @@ for architecture in ("x86_64", "arm64"):
         False,
     )
 
+# Published when built, but not required: Switch 2 CI is currently disabled.
+OPTIONAL_ASSETS = {
+    "Moonlight-Switch2",
+    "Moonlight-Switch2-debug",
+}
+
 ANDROID_ASSETS = {
     "Moonlight-android-release-apk",
     "Moonlight-android-release-unsigned-apk",
@@ -56,7 +62,7 @@ def collect(tag: str, artifacts: Path, output: Path) -> list[Path]:
         if path.is_dir() and not path.name.endswith("-build-logs")
     }
     unknown = directories.keys() - ASSETS.keys()
-    missing = ASSETS.keys() - ANDROID_ASSETS - directories.keys()
+    missing = ASSETS.keys() - ANDROID_ASSETS - OPTIONAL_ASSETS - directories.keys()
     if unknown or missing:
         raise ValueError(
             f"Unexpected artifacts: {sorted(unknown)}; missing artifacts: {sorted(missing)}"

@@ -7,6 +7,7 @@
 
 #ifdef __SWITCH__
 #include <borealis/platforms/switch/switch_input.hpp>
+#include <switch.h>
 #endif
 
 #include "streaming_view.hpp"
@@ -260,6 +261,10 @@ StreamingView::StreamingView(const Host& host, const AppInfo& app) : host(host),
                     }
                 }
             });
+
+    windowFocusSubscription =
+        Application::getWindowFocusChangedEvent()->subscribe(
+            [this](bool focused) { this->onWindowFocusChanged(focused); });
 }
 
 void StreamingView::onFocusGained() {
@@ -318,12 +323,48 @@ void StreamingView::onFocusLost() {
 
 void StreamingView::draw(NVGcontext* vg, float x, float y, float width,
                          float height, Style style, FrameContext* ctx) {
-    if (session->is_terminated()) {
+    if (pendingSuspendTerminate) {
+        // Safe to tear down here: we are in the main loop, not inside an
+        // event callback. After a sleep this runs on the first frame after
+        // waking, when the graphics service is back.
+        pendingSuspendTerminate = false;
         terminate(false);
         return;
     }
 
+    switch (session->status()) {
+        case MoonlightSession::Status::RestartPending:
+            // Reconnects requested by worker threads run here, on the main
+            // thread, so moonlight-common-c never joins its own threads.
+            session->performRestart();
+            break;
+        case MoonlightSession::Status::Terminate:
+            terminate(false);
+            return;
+        default:
+            break;
+    }
+
     session->draw(vg, (int) width, (int) height);
+
+    // Spinner + label while a reconnect is pending or in progress, so a
+    // frozen last frame does not look like a hang.
+    const bool reconnecting = session->is_reconnecting();
+    if (reconnecting != reconnectOverlayShown) {
+        reconnectOverlayShown = reconnecting;
+        loader->setHidden(!reconnecting);
+    }
+    if (reconnecting) {
+        nvgFontSize(vg, 24);
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        nvgFontFaceId(vg, Application::getFont(FONT_REGULAR));
+        nvgFontBlur(vg, 3);
+        nvgFillColor(vg, nvgRGBA(0, 0, 0, 255));
+        nvgText(vg, x + width / 2, y + height / 2 + 80, "Reconnecting...", nullptr);
+        nvgFontBlur(vg, 0);
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
+        nvgText(vg, x + width / 2, y + height / 2 + 80, "Reconnecting...", nullptr);
+    }
 
     if (!tempInputLock && session->is_active())
         handleInput();
@@ -451,6 +492,27 @@ void StreamingView::removeKeyboard() {
     keyboard->removeFromSuperView();
     keyboard = nullptr;
     Application::giveFocus(this);
+}
+
+void StreamingView::onWindowFocusChanged(bool focused) {
+#if defined(__SWITCH__) && !defined(__SWITCH2__)
+    if (focused || terminated)
+        return;
+
+    // OutOfFocus only means a library applet (e.g. an error dialog) is shown
+    // on top of us; keep the stream. Background means the HOME menu took over
+    // or the console is going to sleep: the OS will tear down the decoder and
+    // GPU services, so end the stream cleanly instead of trying to survive
+    // it, like Moonlight on Android does.
+    if (appletGetFocusState() != AppletFocusState_Background)
+        return;
+
+    Logger::info("StreamingView: app went to background, ending the stream");
+    MoonlightInputManager::instance().dropInput();
+    pendingSuspendTerminate = true;
+#else
+    (void)focused;
+#endif
 }
 
 void StreamingView::terminate(bool terminateApp) {
@@ -634,6 +696,8 @@ StreamingView::~StreamingView() {
         ->getInputManager()
         ->getKeyboardKeyStateChanged()
         ->unsubscribe(keysSubscription);
+    Application::getWindowFocusChangedEvent()->unsubscribe(
+        windowFocusSubscription);
     session->stop(false);
     delete session;
 }

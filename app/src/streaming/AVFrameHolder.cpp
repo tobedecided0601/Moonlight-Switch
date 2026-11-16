@@ -262,6 +262,9 @@ void AVFrameQueue::configure(
     limit = capacityFor(configuredDepth);
     if (capacityLimit)
         limit = std::min(limit, capacityLimit);
+    // Jitter reserve follows the frames_queue_size setting: 1 -> none,
+    // 2 -> one frame (default), 3+ -> two frames. Each frame of reserve adds
+    // ~16 ms of latency at 60 FPS.
     targetBufferedFrames =
         configuredDepth > 1 ? std::min<size_t>(configuredDepth - 1, 2) : 0;
     targetBufferedFrames  = std::min(targetBufferedFrames, limit - 1);

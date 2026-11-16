@@ -364,14 +364,22 @@ void Settings::load() {
                 }
             }
 
-            if (json_t* frames_queue_size = json_object_get(settings, "frames_queue_size")) {
+            // "frames_queue_size" was always saved with the old default of 3,
+            // so it does not reflect a user choice. Use the v2 key; only carry
+            // the old value over if someone set it to something non-default.
+            if (json_t* frames_queue_size = json_object_get(settings, "frames_queue_size_v2")) {
                 if (json_typeof(frames_queue_size) == JSON_INTEGER) {
                     m_frames_queue_size = (int)json_integer_value(frames_queue_size);
-
-                    // SANITY CHECK, APP WILL CRASH OTHERWISE
-                    if (m_frames_queue_size < 1) m_frames_queue_size = 1;
+                }
+            } else if (json_t* legacy_queue_size = json_object_get(settings, "frames_queue_size")) {
+                if (json_typeof(legacy_queue_size) == JSON_INTEGER &&
+                    json_integer_value(legacy_queue_size) != 3) {
+                    m_frames_queue_size = (int)json_integer_value(legacy_queue_size);
                 }
             }
+
+            // SANITY CHECK, APP WILL CRASH OTHERWISE
+            if (m_frames_queue_size < 1) m_frames_queue_size = 1;
 
             if (json_t* hw_decoding = json_object_get(settings, "use_hw_decoding")) {
                 m_use_hw_decoding = json_typeof(hw_decoding) == JSON_TRUE;
@@ -648,7 +656,7 @@ void Settings::save()
             json_object_set_new(settings, "audio_backend", json_integer(m_audio_backend));
             json_object_set_new(settings, "bitrate", json_integer(m_bitrate));
             json_object_set_new(settings, "decoder_threads", json_integer(m_decoder_threads));
-            json_object_set_new(settings, "frames_queue_size", json_integer(m_frames_queue_size));
+            json_object_set_new(settings, "frames_queue_size_v2", json_integer(m_frames_queue_size));
             json_object_set_new(settings, "enable_hdr", m_enable_hdr ? json_true() : json_false());
             json_object_set_new(settings, "enable_upscaling", upscaling() ? json_true() : json_false());
             json_object_set_new(settings, "upscaling_mode", json_integer(upscaling_mode()));

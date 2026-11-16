@@ -21,6 +21,7 @@ class DKVideoRenderer : public IVideoRenderer {
     void draw(NVGcontext* vg, int width, int height, AVFrame* frame, int imageFormat) override;
 
     VideoRenderStats* video_render_stats() override;
+    void invalidateHardwareResources() override;
 
   private:
     void checkAndInitialize(int width, int height, AVFrame* frame);

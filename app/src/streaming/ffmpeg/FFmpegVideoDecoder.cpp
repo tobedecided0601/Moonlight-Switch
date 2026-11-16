@@ -32,6 +32,10 @@ extern "C" {
 //#endif
 #define DECODER_BUFFER_SIZE (1024 * 1024)
 
+// Consecutive decode failures tolerated (each answered with a keyframe
+// request) before giving up and reconnecting the stream.
+#define MAX_CONSECUTIVE_DECODE_ERRORS 10
+
 FFmpegVideoDecoder::FFmpegVideoDecoder() {
 //    AVBufferRef* deviceRef = av_hwdevice_ctx_alloc(AV_HWDEVICE_TYPE_MEDIACODEC);
 //    AVHWDeviceContext* ctx = (AVHWDeviceContext*)deviceRef->data;
@@ -391,6 +395,7 @@ int FFmpegVideoDecoder::prepare_android_h264_extradata(PDECODE_UNIT decode_unit)
 int FFmpegVideoDecoder::setup(int video_format, int width, int height,
                               int redraw_rate, void* context, int dr_flags) {
     m_stream_fps = redraw_rate;
+    m_consecutive_decode_errors = 0;
 #if defined(PLATFORM_ANDROID)
     ffmpeg::decoder::cleanupAndroidMediaCodecState(m_android_mediacodec);
 #endif
@@ -771,6 +776,8 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
 
         const int decoded_frames = decode(m_ffmpeg_buffer, length);
         if (decoded_frames >= 0) {
+            m_consecutive_decode_errors = 0;
+
             if (decoded_frames == 0) {
                 return DR_OK;
             }
@@ -840,8 +847,23 @@ int FFmpegVideoDecoder::submit_decode_unit(PDECODE_UNIT decode_unit) {
 
         }
         else {
+            // A damaged frame (usually Wi-Fi packet loss) only breaks the
+            // reference chain until the next keyframe. Ask the host for one,
+            // which recovers in about a frame, instead of a full reconnect.
+            m_consecutive_decode_errors++;
+            if (m_consecutive_decode_errors < MAX_CONSECUTIVE_DECODE_ERRORS) {
+                brls::Logger::warning(
+                    "FFmpeg: Decode failed ({} in a row), requesting keyframe",
+                    m_consecutive_decode_errors);
+                return DR_NEED_IDR;
+            }
+
+            brls::Logger::error(
+                "FFmpeg: {} decode failures in a row, scheduling reconnect",
+                m_consecutive_decode_errors);
+            m_consecutive_decode_errors = 0;
             if (MoonlightSession::activeSession() != nullptr)
-                MoonlightSession::activeSession()->restart();
+                MoonlightSession::activeSession()->scheduleRestart();
         }
     } else {
         brls::Logger::error("FFmpeg: Big buffer to decode... 2");

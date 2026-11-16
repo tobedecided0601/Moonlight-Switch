@@ -41,6 +41,11 @@ class IVideoRenderer {
                       AVFrame* frame, int imageFormat) = 0;
     virtual VideoRenderStats* video_render_stats() = 0;
 
+    // Called when the decoder is torn down and recreated (stream reconnect).
+    // A renderer that caches mappings of decoder-owned memory must drop them
+    // here and rebuild them from the next frame it is given.
+    virtual void invalidateHardwareResources() {}
+
     // Default implementations
     virtual int getDecoderColorspace() {
         // Rec 601 is default

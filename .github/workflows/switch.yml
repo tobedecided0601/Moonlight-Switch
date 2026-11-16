@@ -19,10 +19,13 @@ jobs:
           - name: Switch 1
             platform: switch1
             image: devkitpro/devkita64:latest
-          - name: Switch 2
-            platform: switch2
-            # Matches the public ounce-devkit Dockerfile's devkitPro toolchain.
-            image: devkitpro/devkita64:20260219
+          # Switch 2 builds are disabled for now: they download a prebuilt
+          # third-party SDK (ounce-devkit) whose provenance we have not
+          # reviewed. Uncomment to re-enable.
+          # - name: Switch 2
+          #   platform: switch2
+          #   # Matches the public ounce-devkit Dockerfile's devkitPro toolchain.
+          #   image: devkitpro/devkita64:20260219
 
     container:
       image: ${{ matrix.image }}

@@ -47,11 +47,18 @@ class StreamingView : public brls::Box {
     bool terminated = false;
     bool tempInputLock = false;
     brls::Event<brls::KeyState>::Subscription keysSubscription;
+    brls::Event<bool>::Subscription windowFocusSubscription;
+    // Set by onWindowFocusChanged(), acted on in draw(). Terminating from
+    // inside the event callback would unsubscribe while Event::fire() is
+    // iterating its callback list.
+    bool pendingSuspendTerminate = false;
+    bool reconnectOverlayShown = false;
     int touchScrollCounter = 0;
     size_t bottombarDelayTask = -1;
     bool m_use_hdr = false;
     TwoFingerScrollGestureRecognizer* scrollTouchRecognizer = nullptr;
 
+    void onWindowFocusChanged(bool focused);
     void handleInput();
     void handleOverlayCombo();
     void handleMouseInputCombo();
